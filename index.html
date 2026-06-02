@@ -34,6 +34,7 @@ tailwind.config = {
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  .tier-pill { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body class="bg-bg text-slate-800 h-screen overflow-hidden">
@@ -157,7 +158,7 @@ const state = {
 };
 
 // ════════════════════════════════════════════════════════════
-// API HELPER (uses GET with form-style params to avoid CORS preflight)
+// API HELPER
 // ════════════════════════════════════════════════════════════
 async function api(action, params = {}, method = 'GET') {
   if (!state.apiUrl) throw new Error('Backend URL not set');
@@ -170,7 +171,6 @@ async function api(action, params = {}, method = 'GET') {
     const r = await fetch(url.toString());
     return r.json();
   } else {
-    // POST as text/plain to avoid CORS preflight
     const r = await fetch(state.apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -214,9 +214,10 @@ function isAdmin() { return state.user && (state.user.role === 'admin' || state.
 // ════════════════════════════════════════════════════════════
 function modal(title, bodyHTML, opts = {}) {
   const root = $('modalRoot');
+  const maxW = opts.maxWidth || 'max-w-lg';
   root.innerHTML = `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-bg" id="modalOverlay">
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div class="bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90vh] flex flex-col">
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 class="font-bold text-slate-900">${esc(title)}</h3>
           <button onclick="closeModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark"></i></button>
@@ -414,7 +415,6 @@ async function renderDashboard() {
   const params = { from: state.dateFrom, to: state.dateTo };
   if (!isAdmin()) params.agentName = state.user.name;
 
-  // KPI cards
   try {
     const r = await api('getSummaryCards', params);
     if (r.status === 'ok') {
@@ -427,7 +427,6 @@ async function renderDashboard() {
     }
   } catch (e) { $('kpiCards').innerHTML = errBox(e.message); }
 
-  // List report
   try {
     const r = await api('getListReport', params);
     if (r.status === 'ok') {
@@ -454,7 +453,6 @@ async function renderDashboard() {
     }
   } catch (e) { $('listReportArea').innerHTML = errBox(e.message); }
 
-  // Top performers
   try {
     const r = await api('getTopPerformers', params);
     if (r.status === 'ok') {
@@ -914,7 +912,6 @@ async function renderMistakes() {
 }
 
 async function openMistakeForm() {
-  // load agent list
   let agents = [];
   try { const r = await api('getAgents', { role: state.user.role }); if (r.status==='ok') agents = r.agents; } catch(e) {}
   modal('Log a Mistake', `
@@ -996,37 +993,44 @@ function errBox(msg) {
 }
 
 // ════════════════════════════════════════════════════════════
-// PROMO BONUS — Voucher management
+// PROMO BONUS — Voucher Management with Distribution
 // ════════════════════════════════════════════════════════════
 const PROMO_TIER_META = {
-  1: { name: '17% Slot',   color: 'bg-blue-50 border-blue-200 text-blue-700',     pill: 'bg-blue-100 text-blue-700' },
-  2: { name: '25% Slot',   color: 'bg-indigo-50 border-indigo-200 text-indigo-700', pill: 'bg-indigo-100 text-indigo-700' },
-  3: { name: '35% Slot',   color: 'bg-amber-50 border-amber-200 text-amber-700',   pill: 'bg-amber-100 text-amber-700' },
-  4: { name: '45% Slot',   color: 'bg-pink-50 border-pink-200 text-pink-700',       pill: 'bg-pink-100 text-pink-700' },
-  5: { name: '27% Casino', color: 'bg-rose-50 border-rose-200 text-rose-700',       pill: 'bg-rose-100 text-rose-700' },
-  6: { name: '27% Crush',  color: 'bg-emerald-50 border-emerald-200 text-emerald-700', pill: 'bg-emerald-100 text-emerald-700' }
+  1: { name: '17% Slot',   color: 'bg-blue-50 border-blue-200 text-blue-700',       pill: 'bg-blue-100 text-blue-700',       bar: 'bg-blue-500' },
+  2: { name: '25% Slot',   color: 'bg-indigo-50 border-indigo-200 text-indigo-700', pill: 'bg-indigo-100 text-indigo-700',   bar: 'bg-indigo-500' },
+  3: { name: '35% Slot',   color: 'bg-amber-50 border-amber-200 text-amber-700',    pill: 'bg-amber-100 text-amber-700',     bar: 'bg-amber-500' },
+  4: { name: '45% Slot',   color: 'bg-pink-50 border-pink-200 text-pink-700',       pill: 'bg-pink-100 text-pink-700',       bar: 'bg-pink-500' },
+  5: { name: '27% Casino', color: 'bg-rose-50 border-rose-200 text-rose-700',       pill: 'bg-rose-100 text-rose-700',       bar: 'bg-rose-500' },
+  6: { name: '27% Crush',  color: 'bg-emerald-50 border-emerald-200 text-emerald-700', pill: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' }
 };
+
+const PROMO_AGENTS = ['NADIA','SABRIN','FARHANA','MALIHA','RABEYA','MOON','ESRAT','RIYA','ANANNA','IMRAN','RIMI','MUNALI'];
 
 let promoState = {
   vouchers: [],
   stats: null,
+  agentBreakdown: [],
   filter: { tier: 'all', status: 'all', agent: 'all', search: '' },
-  view: 'admin'  // 'admin' or 'agent' (auto-determined by role)
+  view: 'admin',
+  distributeSelectedAgents: []
 };
 
 async function renderPromo() {
-  const isAdmin = state.user.role === 'admin' || state.user.role === 'boss' || state.user.role === 'main_admin';
-  promoState.view = isAdmin ? 'admin' : 'agent';
+  const isAdminUser = isAdmin();
+  promoState.view = isAdminUser ? 'admin' : 'agent';
 
   $('viewArea').innerHTML = `
     <div class="space-y-6">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 class="text-xl font-bold text-slate-900">Promo Bonus ${isAdmin ? '— Master View' : '— My Vouchers'}</h2>
-          <p class="text-sm text-slate-500 mt-1">${isAdmin ? 'Manage all promo vouchers across 6 tiers' : 'View and update your assigned vouchers'}</p>
+          <h2 class="text-xl font-bold text-slate-900">Promo Bonus ${isAdminUser ? '— Master View' : '— My Vouchers'}</h2>
+          <p class="text-sm text-slate-500 mt-1">${isAdminUser ? 'Manage all promo vouchers across 6 tiers' : 'View and update your assigned vouchers'}</p>
         </div>
-        ${isAdmin ? `
+        ${isAdminUser ? `
         <div class="flex gap-2">
+          <button onclick="openPromoDistributeModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow flex items-center gap-2">
+            <i class="fa-solid fa-shuffle"></i> Distribute
+          </button>
           <button onclick="openPromoAddModal()" class="px-4 py-2 bg-primary hover:bg-primaryDark text-white rounded-lg text-sm font-medium shadow flex items-center gap-2">
             <i class="fa-solid fa-plus"></i> Add Vouchers
           </button>
@@ -1034,6 +1038,8 @@ async function renderPromo() {
       </div>
 
       <div id="promoStatsBox"><div class="text-slate-400 text-sm">Loading stats...</div></div>
+
+      ${isAdminUser ? '<div id="promoAgentWorkload"></div>' : '<div id="promoMyTierBreakdown"></div>'}
 
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <div class="flex flex-wrap gap-3 items-center">
@@ -1054,7 +1060,7 @@ async function renderPromo() {
             <option value="DONE">Done</option>
             <option value="Pending">Pending</option>
           </select>
-          ${isAdmin ? `
+          ${isAdminUser ? `
           <select id="promoFilterAgent" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
             <option value="all">All Agents</option>
             <option value="unassigned">Unassigned</option>
@@ -1066,11 +1072,10 @@ async function renderPromo() {
     </div>
   `;
 
-  // Wire filter events
   $('promoSearch').addEventListener('input', e => { promoState.filter.search = e.target.value; renderPromoTable(); });
   $('promoFilterTier').addEventListener('change', e => { promoState.filter.tier = e.target.value; renderPromoTable(); });
   $('promoFilterStatus').addEventListener('change', e => { promoState.filter.status = e.target.value; renderPromoTable(); });
-  if (isAdmin && $('promoFilterAgent')) {
+  if (isAdminUser && $('promoFilterAgent')) {
     $('promoFilterAgent').addEventListener('change', e => { promoState.filter.agent = e.target.value; renderPromoTable(); });
   }
 
@@ -1079,9 +1084,9 @@ async function renderPromo() {
 
 async function loadPromoData() {
   try {
-    const isAdmin = promoState.view === 'admin';
-    const params = isAdmin ? {} : { agent: state.user.name || state.user.id };
-    const action = isAdmin ? 'promo_all' : 'promo_mine';
+    const isAdminUser = promoState.view === 'admin';
+    const params = isAdminUser ? {} : { agent: state.user.name || state.user.id };
+    const action = isAdminUser ? 'promo_all' : 'promo_mine';
     const r = await api(action, params);
 
     if (r.status !== 'ok') {
@@ -1090,16 +1095,21 @@ async function loadPromoData() {
     }
     promoState.vouchers = r.vouchers || [];
 
-    // Load stats for admin
-    if (isAdmin) {
+    if (isAdminUser) {
       const s = await api('promo_stats');
       if (s.status === 'ok') {
         promoState.stats = s.stats;
         renderPromoStats();
         populateAgentFilter();
       }
+      const ab = await api('promo_agent_breakdown');
+      if (ab.status === 'ok') {
+        promoState.agentBreakdown = ab.agents || [];
+        renderAgentWorkload();
+      }
     } else {
       $('promoStatsBox').innerHTML = renderMyStats();
+      renderMyTierBreakdown();
     }
 
     renderPromoTable();
@@ -1118,8 +1128,8 @@ function renderPromoStats() {
     return `
       <div class="${meta.color} border rounded-xl p-3">
         <p class="text-xs font-semibold uppercase tracking-wide">${meta.name}</p>
-        <p class="text-2xl font-bold mt-1">${tb.total}</p>
-        <p class="text-xs mt-1"><span class="font-medium">${tb.done}</span> done · <span class="font-medium">${tb.pending}</span> pending</p>
+        <p class="text-2xl font-bold mt-1 tier-pill">${fmtMoney(tb.total)}</p>
+        <p class="text-xs mt-1"><span class="font-medium">${fmtMoney(tb.done)}</span> done · <span class="font-medium">${fmtMoney(tb.pending)}</span> pending</p>
       </div>`;
   }).join('');
 
@@ -1127,22 +1137,84 @@ function renderPromoStats() {
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
       <div class="bg-white border border-slate-200 rounded-xl p-3">
         <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">Total Vouchers</p>
-        <p class="text-2xl font-bold text-slate-900 mt-1">${s.total}</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1 tier-pill">${fmtMoney(s.total)}</p>
       </div>
       <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
         <p class="text-xs text-emerald-700 uppercase tracking-wide font-semibold">Done</p>
-        <p class="text-2xl font-bold text-emerald-900 mt-1">${s.done}</p>
+        <p class="text-2xl font-bold text-emerald-900 mt-1 tier-pill">${fmtMoney(s.done)}</p>
       </div>
       <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
         <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold">Pending</p>
-        <p class="text-2xl font-bold text-amber-900 mt-1">${s.pending}</p>
+        <p class="text-2xl font-bold text-amber-900 mt-1 tier-pill">${fmtMoney(s.pending)}</p>
       </div>
       <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
         <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">Unassigned</p>
-        <p class="text-2xl font-bold text-slate-900 mt-1">${s.unassigned}</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1 tier-pill">${fmtMoney(s.unassigned)}</p>
       </div>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">${tierCards}</div>
+  `;
+}
+
+function renderAgentWorkload() {
+  const agents = promoState.agentBreakdown;
+  if (!agents || agents.length === 0) {
+    $('promoAgentWorkload').innerHTML = '';
+    return;
+  }
+
+  const agentCards = agents.map((a, idx) => {
+    const rank = idx + 1;
+    const completion = a.total > 0 ? ((a.done / a.total) * 100).toFixed(1) : '0.0';
+    const avatarColors = ['bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700', 'bg-blue-100 text-blue-700', 'bg-purple-100 text-purple-700', 'bg-emerald-100 text-emerald-700', 'bg-cyan-100 text-cyan-700'];
+    const avatarColor = avatarColors[idx % avatarColors.length];
+    const rankBadge = rank === 1 ? 'bg-amber-100 text-amber-700' : rank === 2 ? 'bg-slate-200 text-slate-700' : rank === 3 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600';
+
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-300 transition">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center font-bold text-xs">${initials(a.name)}</div>
+          <div>
+            <p class="font-bold text-sm text-slate-900">${esc(a.name)}</p>
+            <p class="text-[10px] text-slate-500">Active</p>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 ${rankBadge} rounded-md text-[10px] font-bold">#${rank}</span>
+      </div>
+      <div class="grid grid-cols-3 gap-1 text-center">
+        <div class="bg-slate-50 rounded p-1.5">
+          <p class="text-[10px] text-slate-500 uppercase font-semibold">Total</p>
+          <p class="text-base font-bold text-slate-900 tier-pill">${fmtMoney(a.total)}</p>
+        </div>
+        <div class="bg-emerald-50 rounded p-1.5">
+          <p class="text-[10px] text-emerald-700 uppercase font-semibold">Done</p>
+          <p class="text-base font-bold text-emerald-900 tier-pill">${fmtMoney(a.done)}</p>
+        </div>
+        <div class="bg-amber-50 rounded p-1.5">
+          <p class="text-[10px] text-amber-700 uppercase font-semibold">Pend.</p>
+          <p class="text-base font-bold text-amber-900 tier-pill">${fmtMoney(a.pending)}</p>
+        </div>
+      </div>
+      <div class="mt-2 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+        <div class="bg-emerald-500 h-full" style="width: ${completion}%"></div>
+      </div>
+      <p class="text-[10px] text-slate-500 mt-1">${completion}% completion</p>
+    </div>`;
+  }).join('');
+
+  $('promoAgentWorkload').innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-users text-indigo-600"></i> Agent Workload
+            <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold">${agents.length} agents</span>
+          </h3>
+          <p class="text-xs text-slate-500 mt-1">Per-agent assignment & completion status</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">${agentCards}</div>
+    </div>
   `;
 }
 
@@ -1151,20 +1223,60 @@ function renderMyStats() {
   const total = v.length;
   const done = v.filter(x => String(x.status).toUpperCase() === 'DONE').length;
   const pending = total - done;
+  const completion = total > 0 ? ((done / total) * 100).toFixed(1) : '0.0';
   return `
     <div class="grid grid-cols-3 gap-3">
       <div class="bg-white border border-slate-200 rounded-xl p-4">
         <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">My Total</p>
-        <p class="text-3xl font-bold text-slate-900 mt-1">${total}</p>
+        <p class="text-3xl font-bold text-slate-900 mt-1 tier-pill">${fmtMoney(total)}</p>
+        <p class="text-xs text-slate-400 mt-1">vouchers assigned</p>
       </div>
       <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
         <p class="text-xs text-emerald-700 uppercase tracking-wide font-semibold">Done</p>
-        <p class="text-3xl font-bold text-emerald-900 mt-1">${done}</p>
+        <p class="text-3xl font-bold text-emerald-900 mt-1 tier-pill">${fmtMoney(done)}</p>
+        <p class="text-xs text-emerald-600 mt-1">${completion}% completion</p>
       </div>
       <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
         <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold">Pending</p>
-        <p class="text-3xl font-bold text-amber-900 mt-1">${pending}</p>
+        <p class="text-3xl font-bold text-amber-900 mt-1 tier-pill">${fmtMoney(pending)}</p>
+        <p class="text-xs text-amber-600 mt-1">Action required</p>
       </div>
+    </div>
+  `;
+}
+
+function renderMyTierBreakdown() {
+  const v = promoState.vouchers;
+  if (!v.length) { $('promoMyTierBreakdown').innerHTML = ''; return; }
+
+  // Group by tier
+  const byTier = {};
+  [1,2,3,4,5,6].forEach(t => { byTier[t] = { total: 0, done: 0 }; });
+  v.forEach(x => {
+    const t = byTier[x.tier];
+    if (!t) return;
+    t.total++;
+    if (String(x.status).toUpperCase() === 'DONE') t.done++;
+  });
+
+  const rows = [1,2,3,4,5,6].map(t => {
+    const tb = byTier[t];
+    if (tb.total === 0) return '';
+    const meta = PROMO_TIER_META[t];
+    const pct = tb.total > 0 ? Math.round((tb.done / tb.total) * 100) : 0;
+    return `<div class="flex items-center gap-3 text-xs">
+      <span class="${meta.pill} px-2 py-1 rounded w-24 text-center font-semibold">${meta.name}</span>
+      <div class="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+        <div class="${meta.bar} h-full" style="width: ${pct}%"></div>
+      </div>
+      <span class="font-semibold text-slate-700 w-20 text-right tier-pill">${fmtMoney(tb.done)} / ${fmtMoney(tb.total)}</span>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  $('promoMyTierBreakdown').innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <p class="text-xs font-semibold text-slate-600 uppercase mb-3">Your Workload by Tier</p>
+      <div class="space-y-2">${rows || '<p class="text-sm text-slate-400">No assigned vouchers yet</p>'}</div>
     </div>
   `;
 }
@@ -1174,21 +1286,20 @@ function populateAgentFilter() {
   if (!sel || !promoState.stats) return;
   const agents = Object.keys(promoState.stats.byAgent).sort();
   const html = ['<option value="all">All Agents</option>', '<option value="unassigned">Unassigned</option>']
-    .concat(agents.map(a => `<option value="${esc(a)}">${esc(a)} (${promoState.stats.byAgent[a].total})</option>`));
+    .concat(agents.map(a => `<option value="${esc(a)}">${esc(a)} (${fmtMoney(promoState.stats.byAgent[a].total)})</option>`));
   sel.innerHTML = html.join('');
 }
 
 function renderPromoTable() {
-  const isAdmin = promoState.view === 'admin';
+  const isAdminUser = promoState.view === 'admin';
   const f = promoState.filter;
   let rows = promoState.vouchers.slice();
 
-  // Apply filters
   if (f.tier !== 'all') rows = rows.filter(v => v.tier === parseInt(f.tier));
   if (f.status !== 'all') rows = rows.filter(v => String(v.status).toUpperCase() === f.status.toUpperCase());
-  if (isAdmin && f.agent !== 'all') {
+  if (isAdminUser && f.agent !== 'all') {
     if (f.agent === 'unassigned') rows = rows.filter(v => !v.agent);
-    else rows = rows.filter(v => v.agent === f.agent);
+    else rows = rows.filter(v => v.agent.toUpperCase() === f.agent.toUpperCase());
   }
   if (f.search.trim()) {
     const q = f.search.trim().toLowerCase();
@@ -1200,7 +1311,11 @@ function renderPromoTable() {
     return;
   }
 
-  const tableHead = isAdmin
+  // Limit to 200 rows for performance
+  const displayRows = rows.slice(0, 200);
+  const truncated = rows.length > 200;
+
+  const tableHead = isAdminUser
     ? `<tr class="text-left text-xs text-slate-500 uppercase tracking-wide bg-slate-50 border-b border-slate-200">
          <th class="px-3 py-3">Tier</th>
          <th class="px-3 py-3">Voucher No.</th>
@@ -1217,7 +1332,7 @@ function renderPromoTable() {
          <th class="px-3 py-3 text-right">Action</th>
        </tr>`;
 
-  const tableBody = rows.map(v => {
+  const tableBody = displayRows.map(v => {
     const meta = PROMO_TIER_META[v.tier];
     const isDone = String(v.status).toUpperCase() === 'DONE';
     const statusPill = isDone
@@ -1226,7 +1341,7 @@ function renderPromoTable() {
 
     const tierBadge = `<span class="inline-block px-2 py-1 ${meta.pill} rounded-md text-xs font-semibold">T${v.tier} · ${meta.name}</span>`;
 
-    if (isAdmin) {
+    if (isAdminUser) {
       return `<tr class="border-b border-slate-100 hover:bg-slate-50">
         <td class="px-3 py-3">${tierBadge}</td>
         <td class="px-3 py-3 font-mono text-sm font-semibold text-slate-800">${esc(v.voucher)}</td>
@@ -1251,6 +1366,10 @@ function renderPromoTable() {
     }
   }).join('');
 
+  const summaryNote = truncated 
+    ? `Showing first 200 of ${fmtMoney(rows.length)} vouchers (use filters to narrow)`
+    : `Showing ${fmtMoney(rows.length)} of ${fmtMoney(promoState.vouchers.length)} vouchers`;
+
   $('promoTable').innerHTML = `
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div class="overflow-x-auto">
@@ -1259,7 +1378,7 @@ function renderPromoTable() {
           <tbody>${tableBody}</tbody>
         </table>
       </div>
-      <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">Showing ${rows.length} of ${promoState.vouchers.length} vouchers</div>
+      <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">${summaryNote}</div>
     </div>
   `;
 }
@@ -1281,7 +1400,7 @@ function openPromoAgentModal(v) {
           <div>
             <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Status</label>
             <select id="agentVStatus" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-              <option value="Pending"${v.status === 'Pending' ? ' selected' : ''}>Pending</option>
+              <option value="Pending"${String(v.status).toUpperCase() !== 'DONE' ? ' selected' : ''}>Pending</option>
               <option value="DONE"${String(v.status).toUpperCase() === 'DONE' ? ' selected' : ''}>Done</option>
             </select>
           </div>
@@ -1301,6 +1420,10 @@ function openPromoAgentModal(v) {
 
 // ─── Admin edits voucher ───
 function openPromoEditModal(v) {
+  const agentOptions = PROMO_AGENTS.map(a => 
+    `<option value="${a}"${v.agent && v.agent.toUpperCase() === a ? ' selected' : ''}>${a}</option>`
+  ).join('');
+
   $('modalRoot').innerHTML = `
     <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
       <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
@@ -1315,13 +1438,15 @@ function openPromoEditModal(v) {
         <div class="space-y-3">
           <div>
             <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Assigned Agent</label>
-            <input id="adminVAgent" type="text" value="${esc(v.agent || '')}" placeholder="Agent name (uppercase)" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary uppercase">
-            <p class="text-xs text-slate-400 mt-1">e.g. NADIA, SABRIN, FARHANA (leave blank to unassign)</p>
+            <select id="adminVAgent" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="">— Unassigned —</option>
+              ${agentOptions}
+            </select>
           </div>
           <div>
             <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Status</label>
             <select id="adminVStatus" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-              <option value="Pending"${v.status === 'Pending' ? ' selected' : ''}>Pending</option>
+              <option value="Pending"${String(v.status).toUpperCase() !== 'DONE' ? ' selected' : ''}>Pending</option>
               <option value="DONE"${String(v.status).toUpperCase() === 'DONE' ? ' selected' : ''}>Done</option>
             </select>
           </div>
@@ -1375,6 +1500,182 @@ function openPromoAddModal() {
   `;
 }
 
+// ─── Admin DISTRIBUTE modal ───
+function openPromoDistributeModal() {
+  promoState.distributeSelectedAgents = PROMO_AGENTS.slice(); // default: all selected
+
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-slate-900">Distribute Vouchers to Agents</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Bulk-assign pending vouchers to your team</p>
+          </div>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="p-6 space-y-5 overflow-y-auto">
+
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2 block">1. Select Tier</label>
+            <select id="distTier" onchange="updateDistributePreview()" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white">
+              ${[1,2,3,4,5,6].map(t => {
+                const meta = PROMO_TIER_META[t];
+                const tb = promoState.stats && promoState.stats.byTier[t] ? promoState.stats.byTier[t] : { total: 0, done: 0, pending: 0, unassigned: 0 };
+                const unassignedPending = tb.unassigned;
+                return `<option value="${t}" data-available="${unassignedPending}">Tier ${t} — ${meta.name} (${fmtMoney(unassignedPending)} available)</option>`;
+              }).join('')}
+            </select>
+            <p class="text-[11px] text-slate-400 mt-1">Only unassigned + pending vouchers can be distributed.</p>
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2 block">2. How many vouchers to distribute?</label>
+            <div class="flex items-center gap-2">
+              <input id="distQty" type="number" value="60" min="1" oninput="updateDistributePreview()" class="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm">
+              <span id="distAvailable" class="text-sm text-slate-500">of 0 available</span>
+            </div>
+            <div class="flex gap-2 mt-2 flex-wrap">
+              <button onclick="setDistQty(60)" class="text-xs px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-medium">60</button>
+              <button onclick="setDistQty(120)" class="text-xs px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-medium">120</button>
+              <button onclick="setDistQty(240)" class="text-xs px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-medium">240</button>
+              <button onclick="setDistQty(600)" class="text-xs px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-medium">600</button>
+              <button onclick="setDistQtyAll()" class="text-xs px-3 py-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-md font-medium">All Available</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2 block">3. Select Agents (<span id="distSelectedCount">${PROMO_AGENTS.length}</span> selected)</label>
+            <div id="distAgentChips" class="flex flex-wrap gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              ${PROMO_AGENTS.map(a => `
+                <button data-agent="${a}" onclick="toggleDistributeAgent('${a}')" class="dist-agent-chip inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-full text-xs font-semibold transition">
+                  <i class="fa-solid fa-check text-[10px]"></i> ${a}
+                </button>
+              `).join('')}
+            </div>
+            <div class="flex gap-3 mt-2 text-xs">
+              <button onclick="selectAllDistributeAgents(true)" class="text-indigo-600 hover:underline font-medium">Select all</button>
+              <button onclick="selectAllDistributeAgents(false)" class="text-slate-500 hover:underline">Clear</button>
+            </div>
+          </div>
+
+          <div id="distPreview" class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div class="flex items-start gap-2">
+              <i class="fa-solid fa-circle-info text-amber-600 mt-0.5"></i>
+              <div class="text-xs text-amber-900" id="distPreviewText">
+                Loading preview...
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button onclick="closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">Cancel</button>
+          <button id="distSubmitBtn" onclick="submitPromoDistribute()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm shadow-md">
+            <i class="fa-solid fa-paper-plane mr-1"></i> Distribute
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  updateDistributePreview();
+}
+
+function toggleDistributeAgent(agent) {
+  const idx = promoState.distributeSelectedAgents.indexOf(agent);
+  if (idx >= 0) {
+    promoState.distributeSelectedAgents.splice(idx, 1);
+  } else {
+    promoState.distributeSelectedAgents.push(agent);
+  }
+  refreshDistributeChips();
+  updateDistributePreview();
+}
+
+function selectAllDistributeAgents(selectAll) {
+  promoState.distributeSelectedAgents = selectAll ? PROMO_AGENTS.slice() : [];
+  refreshDistributeChips();
+  updateDistributePreview();
+}
+
+function refreshDistributeChips() {
+  document.querySelectorAll('.dist-agent-chip').forEach(btn => {
+    const a = btn.dataset.agent;
+    const selected = promoState.distributeSelectedAgents.indexOf(a) >= 0;
+    if (selected) {
+      btn.className = 'dist-agent-chip inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-full text-xs font-semibold transition';
+      btn.innerHTML = `<i class="fa-solid fa-check text-[10px]"></i> ${a}`;
+    } else {
+      btn.className = 'dist-agent-chip inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-full text-xs font-medium transition';
+      btn.innerHTML = a;
+    }
+  });
+  const cnt = $('distSelectedCount');
+  if (cnt) cnt.textContent = promoState.distributeSelectedAgents.length;
+}
+
+function setDistQty(n) {
+  const input = $('distQty');
+  if (input) {
+    input.value = n;
+    updateDistributePreview();
+  }
+}
+
+function setDistQtyAll() {
+  const sel = $('distTier');
+  if (!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  const available = parseInt(opt.dataset.available || 0);
+  setDistQty(available);
+}
+
+function updateDistributePreview() {
+  const sel = $('distTier');
+  const qtyInput = $('distQty');
+  const previewText = $('distPreviewText');
+  const availSpan = $('distAvailable');
+  if (!sel || !qtyInput || !previewText) return;
+
+  const opt = sel.options[sel.selectedIndex];
+  const available = parseInt(opt.dataset.available || 0);
+  const tierName = PROMO_TIER_META[sel.value].name;
+  const qty = parseInt(qtyInput.value || 0);
+  const numAgents = promoState.distributeSelectedAgents.length;
+
+  if (availSpan) availSpan.textContent = `of ${fmtMoney(available)} available`;
+
+  if (numAgents === 0) {
+    previewText.innerHTML = '<span class="font-semibold">No agents selected.</span> Pick at least one agent.';
+    return;
+  }
+
+  if (qty <= 0) {
+    previewText.innerHTML = '<span class="font-semibold">Set quantity.</span> Enter how many vouchers to distribute.';
+    return;
+  }
+
+  const actualQty = Math.min(qty, available);
+  const base = Math.floor(actualQty / numAgents);
+  const remainder = actualQty % numAgents;
+  const perAgentDesc = remainder === 0 
+    ? `${fmtMoney(base)} vouchers per agent`
+    : `${fmtMoney(base)} per agent (${remainder} get +1 extra)`;
+
+  let warning = '';
+  if (qty > available) {
+    warning = `<p class="mt-1 text-red-700"><strong>Note:</strong> Only ${fmtMoney(available)} available, ${fmtMoney(qty - available)} will be skipped.</p>`;
+  }
+
+  previewText.innerHTML = `
+    <p><strong>Preview:</strong> Will assign <strong>${fmtMoney(actualQty)} vouchers</strong> from ${tierName} — <strong>${perAgentDesc}</strong> across <strong>${numAgents} selected agents</strong>. Vouchers are randomly shuffled before assignment.</p>
+    ${warning}
+  `;
+}
+
 async function submitPromoUpdate(tier, row) {
   const status = $('agentVStatus').value;
   const customer = $('agentVCust').value.trim();
@@ -1393,7 +1694,6 @@ async function submitPromoEdit(tier, row) {
   const status = $('adminVStatus').value;
   const customer = $('adminVCust').value.trim();
   try {
-    // Assign + Update in two calls
     const a = await api('promo_assign', { tier, row, agent }, 'POST');
     if (a.status !== 'ok') { toast(a.message || 'Failed to assign', 'error'); return; }
     const u = await api('promo_update', { tier, row, status, customer }, 'POST');
@@ -1422,6 +1722,34 @@ async function submitPromoAdd() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+async function submitPromoDistribute() {
+  const tier = parseInt($('distTier').value);
+  const qty = parseInt($('distQty').value || 0);
+  const agents = promoState.distributeSelectedAgents.slice();
+
+  if (!agents.length) { toast('Select at least one agent', 'error'); return; }
+  if (qty <= 0) { toast('Set quantity > 0', 'error'); return; }
+
+  const btn = $('distSubmitBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Distributing...'; }
+
+  try {
+    const r = await api('promo_distribute', { tier, qty, agents, mode: 'equal' }, 'POST');
+    if (r.status === 'ok') {
+      closeModal();
+      const summary = Object.entries(r.summary || {}).map(([k,v]) => `${k}: ${v}`).join(', ');
+      toast(`Distributed ${r.assigned} vouchers — ${summary}`, 'success');
+      loadPromoData();
+    } else {
+      toast(r.message || 'Distribution failed', 'error');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i> Distribute'; }
+    }
+  } catch (e) {
+    toast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i> Distribute'; }
+  }
+}
+
 async function deletePromoVoucher(tier, row) {
   if (!confirm('Delete this voucher? This cannot be undone.')) return;
   try {
@@ -1435,10 +1763,17 @@ async function deletePromoVoucher(tier, row) {
 window.openPromoAddModal = openPromoAddModal;
 window.openPromoEditModal = openPromoEditModal;
 window.openPromoAgentModal = openPromoAgentModal;
+window.openPromoDistributeModal = openPromoDistributeModal;
 window.submitPromoAdd = submitPromoAdd;
 window.submitPromoEdit = submitPromoEdit;
 window.submitPromoUpdate = submitPromoUpdate;
+window.submitPromoDistribute = submitPromoDistribute;
 window.deletePromoVoucher = deletePromoVoucher;
+window.toggleDistributeAgent = toggleDistributeAgent;
+window.selectAllDistributeAgents = selectAllDistributeAgents;
+window.setDistQty = setDistQty;
+window.setDistQtyAll = setDistQtyAll;
+window.updateDistributePreview = updateDistributePreview;
 
 // ════════════════════════════════════════════════════════════
 // BOOT
@@ -1447,6 +1782,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (state.user && state.apiUrl) enterApp();
   else showLogin();
 });
+
 // expose for inline onclick
 window.openLeadForm = openLeadForm;
 window.editLead = editLead;
