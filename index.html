@@ -103,6 +103,7 @@ tailwind.config = {
         <p class="px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-6">Management</p>
         <a data-view="attendance" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"><i class="fa-solid fa-clipboard-user w-5"></i> Attendance</a>
         <a data-view="mistakes" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"><i class="fa-solid fa-triangle-exclamation w-5"></i> Mistake Logs</a>
+        <a data-view="promo" class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"><i class="fa-solid fa-ticket w-5"></i> Promo Bonus</a>
       </nav>
     </div>
     <!-- Session widget -->
@@ -313,9 +314,9 @@ function renderView(view) {
   document.querySelectorAll('.nav-link').forEach(l => {
     l.classList.toggle('nav-active', l.dataset.view === view);
   });
-  const labels = { dashboard:'Dashboard', leads:'Tele-sales Leads', search:'Search Customers', leaderboard:'Leaderboard', attendance:'Attendance', mistakes:'Mistake Logs' };
+  const labels = { dashboard:'Dashboard', leads:'Tele-sales Leads', search:'Search Customers', leaderboard:'Leaderboard', attendance:'Attendance', mistakes:'Mistake Logs', promo:'Promo Bonus' };
   $('breadcrumb').textContent = labels[view];
-  const renders = { dashboard:renderDashboard, leads:renderLeads, search:renderSearch, leaderboard:renderLeaderboard, attendance:renderAttendance, mistakes:renderMistakes };
+  const renders = { dashboard:renderDashboard, leads:renderLeads, search:renderSearch, leaderboard:renderLeaderboard, attendance:renderAttendance, mistakes:renderMistakes, promo:renderPromo };
   renders[view]();
 }
 
@@ -993,6 +994,451 @@ function errBox(msg) {
     <i class="fa-solid fa-circle-exclamation mr-1"></i> ${esc(msg)}
   </div>`;
 }
+
+// ════════════════════════════════════════════════════════════
+// PROMO BONUS — Voucher management
+// ════════════════════════════════════════════════════════════
+const PROMO_TIER_META = {
+  1: { name: '17% Slot',   color: 'bg-blue-50 border-blue-200 text-blue-700',     pill: 'bg-blue-100 text-blue-700' },
+  2: { name: '25% Slot',   color: 'bg-indigo-50 border-indigo-200 text-indigo-700', pill: 'bg-indigo-100 text-indigo-700' },
+  3: { name: '35% Slot',   color: 'bg-amber-50 border-amber-200 text-amber-700',   pill: 'bg-amber-100 text-amber-700' },
+  4: { name: '45% Slot',   color: 'bg-pink-50 border-pink-200 text-pink-700',       pill: 'bg-pink-100 text-pink-700' },
+  5: { name: '27% Casino', color: 'bg-rose-50 border-rose-200 text-rose-700',       pill: 'bg-rose-100 text-rose-700' },
+  6: { name: '27% Crush',  color: 'bg-emerald-50 border-emerald-200 text-emerald-700', pill: 'bg-emerald-100 text-emerald-700' }
+};
+
+let promoState = {
+  vouchers: [],
+  stats: null,
+  filter: { tier: 'all', status: 'all', agent: 'all', search: '' },
+  view: 'admin'  // 'admin' or 'agent' (auto-determined by role)
+};
+
+async function renderPromo() {
+  const isAdmin = state.user.role === 'admin' || state.user.role === 'boss';
+  promoState.view = isAdmin ? 'admin' : 'agent';
+
+  $('viewArea').innerHTML = `
+    <div class="space-y-6">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Promo Bonus ${isAdmin ? '— Master View' : '— My Vouchers'}</h2>
+          <p class="text-sm text-slate-500 mt-1">${isAdmin ? 'Manage all promo vouchers across 6 tiers' : 'View and update your assigned vouchers'}</p>
+        </div>
+        ${isAdmin ? `
+        <div class="flex gap-2">
+          <button onclick="openPromoAddModal()" class="px-4 py-2 bg-primary hover:bg-primaryDark text-white rounded-lg text-sm font-medium shadow flex items-center gap-2">
+            <i class="fa-solid fa-plus"></i> Add Vouchers
+          </button>
+        </div>` : ''}
+      </div>
+
+      <div id="promoStatsBox"><div class="text-slate-400 text-sm">Loading stats...</div></div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="flex flex-wrap gap-3 items-center">
+          <div class="flex-1 min-w-[200px]">
+            <input id="promoSearch" type="text" placeholder="Search voucher / customer..." class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary">
+          </div>
+          <select id="promoFilterTier" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="all">All Tiers</option>
+            <option value="1">Tier 1 (17% Slot)</option>
+            <option value="2">Tier 2 (25% Slot)</option>
+            <option value="3">Tier 3 (35% Slot)</option>
+            <option value="4">Tier 4 (45% Slot)</option>
+            <option value="5">Tier 5 (27% Casino)</option>
+            <option value="6">Tier 6 (27% Crush)</option>
+          </select>
+          <select id="promoFilterStatus" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="all">All Status</option>
+            <option value="DONE">Done</option>
+            <option value="Pending">Pending</option>
+          </select>
+          ${isAdmin ? `
+          <select id="promoFilterAgent" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            <option value="all">All Agents</option>
+            <option value="unassigned">Unassigned</option>
+          </select>` : ''}
+        </div>
+      </div>
+
+      <div id="promoTable"><div class="text-slate-400 text-sm">Loading vouchers...</div></div>
+    </div>
+  `;
+
+  // Wire filter events
+  $('promoSearch').addEventListener('input', e => { promoState.filter.search = e.target.value; renderPromoTable(); });
+  $('promoFilterTier').addEventListener('change', e => { promoState.filter.tier = e.target.value; renderPromoTable(); });
+  $('promoFilterStatus').addEventListener('change', e => { promoState.filter.status = e.target.value; renderPromoTable(); });
+  if (isAdmin && $('promoFilterAgent')) {
+    $('promoFilterAgent').addEventListener('change', e => { promoState.filter.agent = e.target.value; renderPromoTable(); });
+  }
+
+  await loadPromoData();
+}
+
+async function loadPromoData() {
+  try {
+    const isAdmin = promoState.view === 'admin';
+    const params = isAdmin ? {} : { agent: state.user.name || state.user.id };
+    const action = isAdmin ? 'promo_all' : 'promo_mine';
+    const r = await api(action, params);
+
+    if (r.status !== 'ok') {
+      $('promoTable').innerHTML = errBox(r.message || 'Failed to load vouchers');
+      return;
+    }
+    promoState.vouchers = r.vouchers || [];
+
+    // Load stats for admin
+    if (isAdmin) {
+      const s = await api('promo_stats');
+      if (s.status === 'ok') {
+        promoState.stats = s.stats;
+        renderPromoStats();
+        populateAgentFilter();
+      }
+    } else {
+      $('promoStatsBox').innerHTML = renderMyStats();
+    }
+
+    renderPromoTable();
+  } catch (e) {
+    $('promoTable').innerHTML = errBox(e.message);
+  }
+}
+
+function renderPromoStats() {
+  const s = promoState.stats;
+  if (!s) return;
+
+  const tierCards = [1,2,3,4,5,6].map(t => {
+    const tb = s.byTier[t] || { total:0, done:0, pending:0 };
+    const meta = PROMO_TIER_META[t];
+    return `
+      <div class="${meta.color} border rounded-xl p-3">
+        <p class="text-xs font-semibold uppercase tracking-wide">${meta.name}</p>
+        <p class="text-2xl font-bold mt-1">${tb.total}</p>
+        <p class="text-xs mt-1"><span class="font-medium">${tb.done}</span> done · <span class="font-medium">${tb.pending}</span> pending</p>
+      </div>`;
+  }).join('');
+
+  $('promoStatsBox').innerHTML = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <div class="bg-white border border-slate-200 rounded-xl p-3">
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">Total Vouchers</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1">${s.total}</p>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+        <p class="text-xs text-emerald-700 uppercase tracking-wide font-semibold">Done</p>
+        <p class="text-2xl font-bold text-emerald-900 mt-1">${s.done}</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold">Pending</p>
+        <p class="text-2xl font-bold text-amber-900 mt-1">${s.pending}</p>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">Unassigned</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1">${s.unassigned}</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">${tierCards}</div>
+  `;
+}
+
+function renderMyStats() {
+  const v = promoState.vouchers;
+  const total = v.length;
+  const done = v.filter(x => String(x.status).toUpperCase() === 'DONE').length;
+  const pending = total - done;
+  return `
+    <div class="grid grid-cols-3 gap-3">
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">My Total</p>
+        <p class="text-3xl font-bold text-slate-900 mt-1">${total}</p>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <p class="text-xs text-emerald-700 uppercase tracking-wide font-semibold">Done</p>
+        <p class="text-3xl font-bold text-emerald-900 mt-1">${done}</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold">Pending</p>
+        <p class="text-3xl font-bold text-amber-900 mt-1">${pending}</p>
+      </div>
+    </div>
+  `;
+}
+
+function populateAgentFilter() {
+  const sel = $('promoFilterAgent');
+  if (!sel || !promoState.stats) return;
+  const agents = Object.keys(promoState.stats.byAgent).sort();
+  const html = ['<option value="all">All Agents</option>', '<option value="unassigned">Unassigned</option>']
+    .concat(agents.map(a => `<option value="${esc(a)}">${esc(a)} (${promoState.stats.byAgent[a].total})</option>`));
+  sel.innerHTML = html.join('');
+}
+
+function renderPromoTable() {
+  const isAdmin = promoState.view === 'admin';
+  const f = promoState.filter;
+  let rows = promoState.vouchers.slice();
+
+  // Apply filters
+  if (f.tier !== 'all') rows = rows.filter(v => v.tier === parseInt(f.tier));
+  if (f.status !== 'all') rows = rows.filter(v => String(v.status).toUpperCase() === f.status.toUpperCase());
+  if (isAdmin && f.agent !== 'all') {
+    if (f.agent === 'unassigned') rows = rows.filter(v => !v.agent);
+    else rows = rows.filter(v => v.agent === f.agent);
+  }
+  if (f.search.trim()) {
+    const q = f.search.trim().toLowerCase();
+    rows = rows.filter(v => v.voucher.toLowerCase().includes(q) || (v.customer || '').toLowerCase().includes(q));
+  }
+
+  if (!rows.length) {
+    $('promoTable').innerHTML = emptyBox('No vouchers match your filters');
+    return;
+  }
+
+  const tableHead = isAdmin
+    ? `<tr class="text-left text-xs text-slate-500 uppercase tracking-wide bg-slate-50 border-b border-slate-200">
+         <th class="px-3 py-3">Tier</th>
+         <th class="px-3 py-3">Voucher No.</th>
+         <th class="px-3 py-3">Status</th>
+         <th class="px-3 py-3">Assigned Agent</th>
+         <th class="px-3 py-3">Customer</th>
+         <th class="px-3 py-3 text-right">Actions</th>
+       </tr>`
+    : `<tr class="text-left text-xs text-slate-500 uppercase tracking-wide bg-slate-50 border-b border-slate-200">
+         <th class="px-3 py-3">Tier</th>
+         <th class="px-3 py-3">Voucher No.</th>
+         <th class="px-3 py-3">Status</th>
+         <th class="px-3 py-3">Customer</th>
+         <th class="px-3 py-3 text-right">Action</th>
+       </tr>`;
+
+  const tableBody = rows.map(v => {
+    const meta = PROMO_TIER_META[v.tier];
+    const isDone = String(v.status).toUpperCase() === 'DONE';
+    const statusPill = isDone
+      ? '<span class="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-xs font-semibold"><i class="fa-solid fa-check"></i> Done</span>'
+      : '<span class="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-md text-xs font-semibold"><i class="fa-solid fa-clock"></i> Pending</span>';
+
+    const tierBadge = `<span class="inline-block px-2 py-1 ${meta.pill} rounded-md text-xs font-semibold">T${v.tier} · ${meta.name}</span>`;
+
+    if (isAdmin) {
+      return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+        <td class="px-3 py-3">${tierBadge}</td>
+        <td class="px-3 py-3 font-mono text-sm font-semibold text-slate-800">${esc(v.voucher)}</td>
+        <td class="px-3 py-3">${statusPill}</td>
+        <td class="px-3 py-3 text-sm">${v.agent ? esc(v.agent) : '<span class="text-slate-400 italic">Unassigned</span>'}</td>
+        <td class="px-3 py-3 text-sm text-slate-700">${esc(v.customer || '—')}</td>
+        <td class="px-3 py-3 text-right">
+          <button onclick='openPromoEditModal(${JSON.stringify(v)})' class="px-2.5 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium"><i class="fa-solid fa-pen-to-square"></i> Edit</button>
+          <button onclick='deletePromoVoucher(${v.tier}, ${v.row})' class="px-2.5 py-1.5 text-xs bg-red-50 hover:bg-red-100 text-red-700 rounded-md font-medium ml-1"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>`;
+    } else {
+      return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+        <td class="px-3 py-3">${tierBadge}</td>
+        <td class="px-3 py-3 font-mono text-sm font-semibold text-slate-800">${esc(v.voucher)}</td>
+        <td class="px-3 py-3">${statusPill}</td>
+        <td class="px-3 py-3 text-sm text-slate-700">${esc(v.customer || '—')}</td>
+        <td class="px-3 py-3 text-right">
+          <button onclick='openPromoAgentModal(${JSON.stringify(v)})' class="px-3 py-1.5 text-xs bg-primary hover:bg-primaryDark text-white rounded-md font-medium"><i class="fa-solid fa-pen-to-square"></i> Update</button>
+        </td>
+      </tr>`;
+    }
+  }).join('');
+
+  $('promoTable').innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>${tableHead}</thead>
+          <tbody>${tableBody}</tbody>
+        </table>
+      </div>
+      <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">Showing ${rows.length} of ${promoState.vouchers.length} vouchers</div>
+    </div>
+  `;
+}
+
+// ─── Agent updates voucher ───
+function openPromoAgentModal(v) {
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-slate-900">Update Voucher</h3>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="space-y-3 mb-5 p-3 bg-slate-50 rounded-lg text-sm">
+          <div><span class="text-slate-500">Tier:</span> <span class="font-semibold">${PROMO_TIER_META[v.tier].name}</span></div>
+          <div><span class="text-slate-500">Voucher:</span> <span class="font-mono font-bold">${esc(v.voucher)}</span></div>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Status</label>
+            <select id="agentVStatus" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="Pending"${v.status === 'Pending' ? ' selected' : ''}>Pending</option>
+              <option value="DONE"${String(v.status).toUpperCase() === 'DONE' ? ' selected' : ''}>Done</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Customer Username (Claim)</label>
+            <input id="agentVCust" type="text" value="${esc(v.customer || '')}" placeholder="e.g. sakib75" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="submitPromoUpdate(${v.tier}, ${v.row})" class="flex-1 py-2 bg-primary hover:bg-primaryDark text-white rounded-lg text-sm font-semibold">Save</button>
+          <button onclick="closeModal()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Admin edits voucher ───
+function openPromoEditModal(v) {
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-slate-900">Edit Voucher (Admin)</h3>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="space-y-3 mb-5 p-3 bg-slate-50 rounded-lg text-sm">
+          <div><span class="text-slate-500">Tier:</span> <span class="font-semibold">${PROMO_TIER_META[v.tier].name}</span></div>
+          <div><span class="text-slate-500">Voucher:</span> <span class="font-mono font-bold">${esc(v.voucher)}</span></div>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Assigned Agent</label>
+            <input id="adminVAgent" type="text" value="${esc(v.agent || '')}" placeholder="Agent name (uppercase)" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary uppercase">
+            <p class="text-xs text-slate-400 mt-1">e.g. NADIA, SABRIN, FARHANA (leave blank to unassign)</p>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Status</label>
+            <select id="adminVStatus" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="Pending"${v.status === 'Pending' ? ' selected' : ''}>Pending</option>
+              <option value="DONE"${String(v.status).toUpperCase() === 'DONE' ? ' selected' : ''}>Done</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Customer Username (Claim)</label>
+            <input id="adminVCust" type="text" value="${esc(v.customer || '')}" placeholder="e.g. sakib75" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="submitPromoEdit(${v.tier}, ${v.row})" class="flex-1 py-2 bg-primary hover:bg-primaryDark text-white rounded-lg text-sm font-semibold">Save Changes</button>
+          <button onclick="closeModal()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Admin bulk add ───
+function openPromoAddModal() {
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-bold text-slate-900">Add New Vouchers</h3>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Select Tier</label>
+            <select id="addVTier" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="1">Tier 1 — 17% Slot Bonus</option>
+              <option value="2">Tier 2 — 25% Slot Bonus</option>
+              <option value="3">Tier 3 — 35% Slot Bonus</option>
+              <option value="4">Tier 4 — 45% Slot Bonus</option>
+              <option value="5">Tier 5 — 27% Casino Bonus</option>
+              <option value="6">Tier 6 — 27% Crush Bonus</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Voucher Numbers (paste — one per line)</label>
+            <textarea id="addVList" rows="10" placeholder="4ccc913c&#10;d311ec2f&#10;be3fdc02&#10;..." class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:border-primary"></textarea>
+            <p class="text-xs text-slate-400 mt-1">Duplicates will be auto-skipped. Status will default to "Pending".</p>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="submitPromoAdd()" class="flex-1 py-2 bg-primary hover:bg-primaryDark text-white rounded-lg text-sm font-semibold">Add Vouchers</button>
+          <button onclick="closeModal()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function submitPromoUpdate(tier, row) {
+  const status = $('agentVStatus').value;
+  const customer = $('agentVCust').value.trim();
+  try {
+    const r = await api('promo_update', { tier, row, status, customer }, 'POST');
+    if (r.status === 'ok') {
+      closeModal();
+      toast('Voucher updated', 'success');
+      loadPromoData();
+    } else toast(r.message || 'Failed', 'error');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitPromoEdit(tier, row) {
+  const agent = $('adminVAgent').value.trim().toUpperCase();
+  const status = $('adminVStatus').value;
+  const customer = $('adminVCust').value.trim();
+  try {
+    // Assign + Update in two calls
+    const a = await api('promo_assign', { tier, row, agent }, 'POST');
+    if (a.status !== 'ok') { toast(a.message || 'Failed to assign', 'error'); return; }
+    const u = await api('promo_update', { tier, row, status, customer }, 'POST');
+    if (u.status === 'ok') {
+      closeModal();
+      toast('Voucher updated', 'success');
+      loadPromoData();
+    } else toast(u.message || 'Failed', 'error');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitPromoAdd() {
+  const tier = parseInt($('addVTier').value);
+  const text = $('addVList').value.trim();
+  if (!text) { toast('Please paste voucher numbers', 'error'); return; }
+  const vouchers = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!vouchers.length) { toast('No valid vouchers', 'error'); return; }
+
+  try {
+    const r = await api('promo_add', { tier, vouchers }, 'POST');
+    if (r.status === 'ok') {
+      closeModal();
+      toast(`Added ${r.added} vouchers${r.skipped ? ' (' + r.skipped + ' duplicates skipped)' : ''}`, 'success');
+      loadPromoData();
+    } else toast(r.message || 'Failed', 'error');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deletePromoVoucher(tier, row) {
+  if (!confirm('Delete this voucher? This cannot be undone.')) return;
+  try {
+    const r = await api('promo_delete', { tier, row }, 'POST');
+    if (r.status === 'ok') { toast('Deleted', 'success'); loadPromoData(); }
+    else toast(r.message || 'Failed', 'error');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Expose for inline onclick
+window.openPromoAddModal = openPromoAddModal;
+window.openPromoEditModal = openPromoEditModal;
+window.openPromoAgentModal = openPromoAgentModal;
+window.submitPromoAdd = submitPromoAdd;
+window.submitPromoEdit = submitPromoEdit;
+window.submitPromoUpdate = submitPromoUpdate;
+window.deletePromoVoucher = deletePromoVoucher;
 
 // ════════════════════════════════════════════════════════════
 // BOOT
