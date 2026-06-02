@@ -1015,7 +1015,7 @@ let promoState = {
 };
 
 async function renderPromo() {
-  const isAdmin = state.user.role === 'admin' || state.user.role === 'boss';
+  const isAdmin = state.user.role === 'admin' || state.user.role === 'boss' || state.user.role === 'main_admin';
   promoState.view = isAdmin ? 'admin' : 'agent';
 
   $('viewArea').innerHTML = `
