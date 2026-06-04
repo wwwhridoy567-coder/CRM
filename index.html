@@ -1343,14 +1343,58 @@ function errBox(msg) {
 // ════════════════════════════════════════════════════════════
 // PROMO BONUS — Voucher Management with Distribution
 // ════════════════════════════════════════════════════════════
-const PROMO_TIER_META = {
-  1: { name: '17% Slot',   color: 'bg-blue-50 border-blue-200 text-blue-700',       pill: 'bg-blue-100 text-blue-700',       bar: 'bg-blue-500' },
-  2: { name: '25% Slot',   color: 'bg-indigo-50 border-indigo-200 text-indigo-700', pill: 'bg-indigo-100 text-indigo-700',   bar: 'bg-indigo-500' },
-  3: { name: '35% Slot',   color: 'bg-amber-50 border-amber-200 text-amber-700',    pill: 'bg-amber-100 text-amber-700',     bar: 'bg-amber-500' },
-  4: { name: '45% Slot',   color: 'bg-pink-50 border-pink-200 text-pink-700',       pill: 'bg-pink-100 text-pink-700',       bar: 'bg-pink-500' },
-  5: { name: '27% Casino', color: 'bg-rose-50 border-rose-200 text-rose-700',       pill: 'bg-rose-100 text-rose-700',       bar: 'bg-rose-500' },
-  6: { name: '27% Crush',  color: 'bg-emerald-50 border-emerald-200 text-emerald-700', pill: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' }
+// Default fallback tier metadata - dynamically generated based on tier count
+const TIER_COLOR_PALETTE = [
+  { color: 'bg-blue-50 border-blue-200 text-blue-700',       pill: 'bg-blue-100 text-blue-700',       bar: 'bg-blue-500' },
+  { color: 'bg-indigo-50 border-indigo-200 text-indigo-700', pill: 'bg-indigo-100 text-indigo-700',   bar: 'bg-indigo-500' },
+  { color: 'bg-amber-50 border-amber-200 text-amber-700',    pill: 'bg-amber-100 text-amber-700',     bar: 'bg-amber-500' },
+  { color: 'bg-pink-50 border-pink-200 text-pink-700',       pill: 'bg-pink-100 text-pink-700',       bar: 'bg-pink-500' },
+  { color: 'bg-rose-50 border-rose-200 text-rose-700',       pill: 'bg-rose-100 text-rose-700',       bar: 'bg-rose-500' },
+  { color: 'bg-emerald-50 border-emerald-200 text-emerald-700', pill: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500' },
+  { color: 'bg-cyan-50 border-cyan-200 text-cyan-700',       pill: 'bg-cyan-100 text-cyan-700',       bar: 'bg-cyan-500' },
+  { color: 'bg-purple-50 border-purple-200 text-purple-700', pill: 'bg-purple-100 text-purple-700',   bar: 'bg-purple-500' },
+  { color: 'bg-orange-50 border-orange-200 text-orange-700', pill: 'bg-orange-100 text-orange-700',   bar: 'bg-orange-500' },
+  { color: 'bg-teal-50 border-teal-200 text-teal-700',       pill: 'bg-teal-100 text-teal-700',       bar: 'bg-teal-500' },
+];
+
+// Dynamically populated from backend - default fallback for first paint
+let PROMO_TIER_META = {
+  1: { name: '17% Slot',   ...TIER_COLOR_PALETTE[0] },
+  2: { name: '25% Slot',   ...TIER_COLOR_PALETTE[1] },
+  3: { name: '35% Slot',   ...TIER_COLOR_PALETTE[2] },
+  4: { name: '45% Slot',   ...TIER_COLOR_PALETTE[3] },
+  5: { name: '27% Casino', ...TIER_COLOR_PALETTE[4] },
+  6: { name: '27% Crush',  ...TIER_COLOR_PALETTE[5] }
 };
+
+let PROMO_TIERS_LIST = []; // populated from backend
+let PROMO_MAX_TIERS = 10;
+
+// Load tiers config from backend
+async function loadTiersConfig() {
+  try {
+    const r = await api('promo_tiers_config');
+    if (r.status === 'ok' && r.tiers && r.tiers.length > 0) {
+      PROMO_TIERS_LIST = r.tiers;
+      PROMO_MAX_TIERS = r.maxTiers || 10;
+      // Rebuild PROMO_TIER_META from server
+      PROMO_TIER_META = {};
+      r.tiers.forEach((t, i) => {
+        PROMO_TIER_META[t.tier] = {
+          name: t.name,
+          bonus: t.bonus,
+          game: t.game,
+          order: t.order,
+          ...TIER_COLOR_PALETTE[i % TIER_COLOR_PALETTE.length]
+        };
+      });
+      return true;
+    }
+  } catch (e) {
+    console.warn('Failed to load tiers config', e);
+  }
+  return false;
+}
 
 const PROMO_AGENTS = ['NADIA','SABRIN','FARHANA','MALIHA','RABEYA','MOON','ESRAT','RIYA','ANANNA','IMRAN','RIMI','MUNALI'];
 
@@ -1367,15 +1411,24 @@ async function renderPromo() {
   const isAdminUser = isAdmin();
   promoState.view = isAdminUser ? 'admin' : 'agent';
 
+  // Show loading screen first
+  $('viewArea').innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i><p class="text-sm">Loading promo bonus...</p></div>';
+
+  // Load tier config first (needed for everything)
+  await loadTiersConfig();
+
   $('viewArea').innerHTML = `
     <div class="space-y-6">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 class="text-xl font-bold text-slate-900">Promo Bonus ${isAdminUser ? '— Master View' : '— My Vouchers'}</h2>
-          <p class="text-sm text-slate-500 mt-1">${isAdminUser ? 'Manage all promo vouchers across 6 tiers' : 'View and update your assigned vouchers'}</p>
+          <p class="text-sm text-slate-500 mt-1">${isAdminUser ? `Manage all promo vouchers across ${PROMO_TIERS_LIST.length} tier${PROMO_TIERS_LIST.length === 1 ? '' : 's'}` : 'View and update your assigned vouchers'}</p>
         </div>
         ${isAdminUser ? `
         <div class="flex gap-2">
+          <button onclick="openTierManageModal()" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-medium shadow flex items-center gap-2">
+            <i class="fa-solid fa-sliders"></i> Manage Tiers
+          </button>
           <button onclick="openPromoDistributeModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow flex items-center gap-2">
             <i class="fa-solid fa-shuffle"></i> Distribute
           </button>
@@ -1396,12 +1449,7 @@ async function renderPromo() {
           </div>
           <select id="promoFilterTier" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
             <option value="all">All Tiers</option>
-            <option value="1">Tier 1 (17% Slot)</option>
-            <option value="2">Tier 2 (25% Slot)</option>
-            <option value="3">Tier 3 (35% Slot)</option>
-            <option value="4">Tier 4 (45% Slot)</option>
-            <option value="5">Tier 5 (27% Casino)</option>
-            <option value="6">Tier 6 (27% Crush)</option>
+            ${PROMO_TIERS_LIST.map(t => `<option value="${t.tier}">Tier ${t.tier} (${esc(t.name)})</option>`).join('')}
           </select>
           <select id="promoFilterStatus" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
             <option value="all">All Status</option>
@@ -1470,7 +1518,7 @@ function renderPromoStats() {
   const s = promoState.stats;
   if (!s) return;
 
-  const tierCards = [1,2,3,4,5,6].map(t => {
+  const tierCards = PROMO_TIERS_LIST.map(t => t.tier).map(t => {
     const tb = s.byTier[t] || { total:0, done:0, pending:0 };
     const meta = PROMO_TIER_META[t];
     return `
@@ -1599,7 +1647,7 @@ function renderMyTierBreakdown() {
 
   // Group by tier
   const byTier = {};
-  [1,2,3,4,5,6].forEach(t => { byTier[t] = { total: 0, done: 0 }; });
+  PROMO_TIERS_LIST.forEach(tc => { byTier[tc.tier] = { total: 0, done: 0 }; });
   v.forEach(x => {
     const t = byTier[x.tier];
     if (!t) return;
@@ -1607,7 +1655,7 @@ function renderMyTierBreakdown() {
     if (String(x.status).toUpperCase() === 'DONE') t.done++;
   });
 
-  const rows = [1,2,3,4,5,6].map(t => {
+  const rows = PROMO_TIERS_LIST.map(tc => tc.tier).map(t => {
     const tb = byTier[t];
     if (tb.total === 0) return '';
     const meta = PROMO_TIER_META[t];
@@ -1825,12 +1873,7 @@ function openPromoAddModal() {
           <div>
             <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Select Tier</label>
             <select id="addVTier" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-              <option value="1">Tier 1 — 17% Slot Bonus</option>
-              <option value="2">Tier 2 — 25% Slot Bonus</option>
-              <option value="3">Tier 3 — 35% Slot Bonus</option>
-              <option value="4">Tier 4 — 45% Slot Bonus</option>
-              <option value="5">Tier 5 — 27% Casino Bonus</option>
-              <option value="6">Tier 6 — 27% Crush Bonus</option>
+              ${PROMO_TIERS_LIST.map(t => `<option value="${t.tier}">Tier ${t.tier} — ${esc(t.name)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -1868,7 +1911,7 @@ function openPromoDistributeModal() {
           <div>
             <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2 block">1. Select Tier</label>
             <select id="distTier" onchange="updateDistributePreview()" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white">
-              ${[1,2,3,4,5,6].map(t => {
+              ${PROMO_TIERS_LIST.map(tc => tc.tier).map(t => {
                 const meta = PROMO_TIER_META[t];
                 const tb = promoState.stats && promoState.stats.byTier[t] ? promoState.stats.byTier[t] : { total: 0, done: 0, pending: 0, unassigned: 0 };
                 const unassignedPending = tb.unassigned;
@@ -2106,6 +2149,307 @@ async function deletePromoVoucher(tier, row) {
     else toast(r.message || 'Failed', 'error');
   } catch (e) { toast(e.message, 'error'); }
 }
+
+// ════════════════════════════════════════════════════════════
+// TIER MANAGEMENT — Add/Edit/Delete/Reorder up to 10 tiers
+// ════════════════════════════════════════════════════════════
+
+const GAME_TYPES = ['Slot', 'Casino', 'Crush', 'Fishing', 'Live', 'Sport', 'Lottery', 'Other'];
+
+async function openTierManageModal() {
+  // Refresh tier config from backend
+  await loadTiersConfig();
+
+  const tiers = PROMO_TIERS_LIST.slice();
+  const canAddMore = tiers.length < PROMO_MAX_TIERS;
+
+  const tierRows = tiers.map((t, i) => {
+    const meta = PROMO_TIER_META[t.tier] || TIER_COLOR_PALETTE[i % TIER_COLOR_PALETTE.length];
+    const isFirst = i === 0;
+    const isLast = i === tiers.length - 1;
+    return `<div class="bg-white border border-slate-200 rounded-lg p-3 flex items-center gap-3" data-tier="${t.tier}">
+      <div class="flex flex-col gap-0.5">
+        <button onclick="moveTier(${t.tier}, -1)" ${isFirst ? 'disabled' : ''} class="w-6 h-6 ${isFirst ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:bg-slate-100'} rounded flex items-center justify-center text-xs">
+          <i class="fa-solid fa-chevron-up"></i>
+        </button>
+        <button onclick="moveTier(${t.tier}, 1)" ${isLast ? 'disabled' : ''} class="w-6 h-6 ${isLast ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:bg-slate-100'} rounded flex items-center justify-center text-xs">
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      </div>
+      <div class="${meta.pill || 'bg-slate-100 text-slate-700'} px-2 py-1 rounded font-bold text-xs flex-shrink-0 w-16 text-center">T${t.tier}</div>
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold text-sm text-slate-900 truncate">${esc(t.name)}</p>
+        <p class="text-xs text-slate-500">${t.bonus}% · ${esc(t.game)} · Order #${t.order}</p>
+      </div>
+      <div class="flex gap-1 flex-shrink-0">
+        <button onclick="openTierEditModal(${t.tier})" class="px-2.5 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md font-medium" title="Edit">
+          <i class="fa-solid fa-pen"></i>
+        </button>
+        <button onclick="confirmDeleteTier(${t.tier})" class="px-2.5 py-1.5 text-xs bg-red-50 hover:bg-red-100 text-red-700 rounded-md font-medium" title="Delete">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const bodyHTML = `
+    <div class="space-y-3">
+      <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-900">
+        <p class="font-semibold mb-1"><i class="fa-solid fa-circle-info"></i> Tier Management</p>
+        <p>You can add up to <strong>${PROMO_MAX_TIERS} tiers</strong>. Currently using <strong>${tiers.length}</strong>. New tiers automatically add columns to the PROMO BONUS sheet.</p>
+      </div>
+
+      <div class="space-y-2 max-h-96 overflow-y-auto" id="tierList">
+        ${tierRows || '<p class="text-sm text-slate-400 text-center py-4">No tiers configured</p>'}
+      </div>
+
+      ${canAddMore ? `
+      <button onclick="openTierAddModal()" class="w-full py-3 border-2 border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2">
+        <i class="fa-solid fa-plus"></i> Add New Tier
+      </button>
+      ` : `
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center text-xs text-amber-800">
+        <i class="fa-solid fa-circle-info"></i> Maximum ${PROMO_MAX_TIERS} tiers reached. Delete a tier to add more.
+      </div>
+      `}
+    </div>
+  `;
+
+  modal('Manage Tiers', bodyHTML, {
+    maxWidth: 'max-w-xl',
+    footer: `<button onclick="closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Done</button>`
+  });
+}
+
+// ─── Open Add Tier modal ───
+function openTierAddModal() {
+  const bodyHTML = `
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Tier Name <span class="text-red-500">*</span></label>
+        <input id="newTierName" type="text" placeholder="e.g., 30% Slot Bonus" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary">
+        <p class="text-xs text-slate-400 mt-1">This appears as the column header in your sheet</p>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Bonus % <span class="text-red-500">*</span></label>
+          <input id="newTierBonus" type="number" step="0.1" placeholder="e.g., 30" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Game Type</label>
+          <select id="newTierGame" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            ${GAME_TYPES.map(g => `<option value="${g}">${g}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+        <p class="font-semibold mb-1"><i class="fa-solid fa-triangle-exclamation"></i> Important</p>
+        <p>Adding a new tier will automatically:</p>
+        <ul class="list-disc list-inside mt-1 ml-2">
+          <li>Insert 4 new columns + 1 spacer in the PROMO BONUS sheet</li>
+          <li>Set headers (Voucher No., Status, Update By, Claim Customer)</li>
+          <li>Make this tier available in dropdowns immediately</li>
+        </ul>
+      </div>
+    </div>
+  `;
+
+  modal('Add New Tier', bodyHTML, {
+    maxWidth: 'max-w-md',
+    footer: `<button onclick="closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+             <button onclick="submitNewTier()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold">Create Tier</button>`
+  });
+
+  setTimeout(() => { $('newTierName')?.focus(); }, 100);
+}
+
+async function submitNewTier() {
+  const name = $('newTierName').value.trim();
+  const bonus = parseFloat($('newTierBonus').value);
+  const game = $('newTierGame').value;
+
+  if (!name) { toast('Tier name required', 'error'); return; }
+  if (!bonus && bonus !== 0) { toast('Bonus % required', 'error'); return; }
+
+  try {
+    const r = await api('promo_tier_add', { name, bonus, game, role: state.user.role }, 'POST');
+    if (r.status === 'ok') {
+      toast(`Tier ${r.tier} created`, 'success');
+      closeModal();
+      // Reload everything
+      await loadTiersConfig();
+      renderView('promo');
+    } else {
+      toast(r.message || 'Failed to create tier', 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ─── Edit Tier modal ───
+function openTierEditModal(tierNum) {
+  const tier = PROMO_TIERS_LIST.find(t => t.tier === tierNum);
+  if (!tier) { toast('Tier not found', 'error'); return; }
+
+  const bodyHTML = `
+    <div class="space-y-3">
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+        <p class="text-slate-500">Editing <span class="font-bold text-slate-900">Tier ${tier.tier}</span></p>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Tier Name</label>
+        <input id="editTierName" type="text" value="${esc(tier.name)}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Bonus %</label>
+          <input id="editTierBonus" type="number" step="0.1" value="${tier.bonus}" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Game Type</label>
+          <select id="editTierGame" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+            ${GAME_TYPES.map(g => `<option value="${g}"${g === tier.game ? ' selected' : ''}>${g}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
+        <p><i class="fa-solid fa-circle-info"></i> Changes will apply to all existing vouchers in this tier. The voucher data itself is preserved.</p>
+      </div>
+    </div>
+  `;
+
+  modal(`Edit Tier ${tier.tier}`, bodyHTML, {
+    maxWidth: 'max-w-md',
+    footer: `<button onclick="openTierManageModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Back</button>
+             <button onclick="submitEditTier(${tier.tier})" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold">Save Changes</button>`
+  });
+}
+
+async function submitEditTier(tierNum) {
+  const name = $('editTierName').value.trim();
+  const bonus = parseFloat($('editTierBonus').value);
+  const game = $('editTierGame').value;
+
+  if (!name) { toast('Tier name required', 'error'); return; }
+
+  try {
+    const r = await api('promo_tier_update', {
+      tier: tierNum, name, bonus, game, role: state.user.role
+    }, 'POST');
+    if (r.status === 'ok') {
+      toast('Tier updated', 'success');
+      await loadTiersConfig();
+      await openTierManageModal();
+    } else {
+      toast(r.message || 'Failed', 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ─── Move tier up/down ───
+async function moveTier(tierNum, direction) {
+  const tiers = PROMO_TIERS_LIST.slice();
+  const idx = tiers.findIndex(t => t.tier === tierNum);
+  if (idx < 0) return;
+
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= tiers.length) return;
+
+  // Swap orders
+  [tiers[idx], tiers[newIdx]] = [tiers[newIdx], tiers[idx]];
+  // Reassign order numbers
+  const order = tiers.map((t, i) => ({ tier: t.tier, order: i + 1 }));
+
+  try {
+    const r = await api('promo_tier_reorder', { order, role: state.user.role }, 'POST');
+    if (r.status === 'ok') {
+      toast('Order updated', 'success');
+      await loadTiersConfig();
+      await openTierManageModal();
+    } else {
+      toast(r.message || 'Failed', 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ─── Delete tier with confirmation ───
+async function confirmDeleteTier(tierNum) {
+  const tier = PROMO_TIERS_LIST.find(t => t.tier === tierNum);
+  if (!tier) return;
+
+  if (PROMO_TIERS_LIST.length <= 1) {
+    toast('Cannot delete the last tier', 'error');
+    return;
+  }
+
+  // First call without confirm to get voucher count
+  try {
+    const r = await api('promo_tier_delete', { tier: tierNum, role: state.user.role }, 'POST');
+
+    if (r.status === 'warning') {
+      // Has vouchers, show confirmation
+      const bodyHTML = `
+        <div class="space-y-3">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p class="text-sm font-semibold text-red-900 mb-2">
+              <i class="fa-solid fa-triangle-exclamation"></i> Delete Tier ${tier.tier} (${esc(tier.name)})?
+            </p>
+            <p class="text-sm text-red-700">This tier has <strong>${r.voucherCount} vouchers</strong> that will be permanently deleted from your sheet.</p>
+            <p class="text-xs text-red-600 mt-2">This action cannot be undone. Make sure you have a backup if needed.</p>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Type <code class="bg-slate-100 px-1 rounded">DELETE</code> to confirm</label>
+            <input id="deleteConfirmText" type="text" placeholder="DELETE" class="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono uppercase focus:outline-none focus:border-red-500">
+          </div>
+        </div>
+      `;
+      modal('Confirm Tier Deletion', bodyHTML, {
+        maxWidth: 'max-w-md',
+        footer: `<button onclick="openTierManageModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+                 <button onclick="executeTierDelete(${tierNum})" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold">Delete Permanently</button>`
+      });
+      return;
+    }
+
+    if (r.status === 'ok') {
+      toast('Tier deleted', 'success');
+      await loadTiersConfig();
+      await openTierManageModal();
+    } else {
+      toast(r.message || 'Failed', 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function executeTierDelete(tierNum) {
+  const confirmText = $('deleteConfirmText').value.trim().toUpperCase();
+  if (confirmText !== 'DELETE') {
+    toast('Type DELETE to confirm', 'error');
+    return;
+  }
+
+  try {
+    const r = await api('promo_tier_delete', {
+      tier: tierNum, confirmDelete: true, role: state.user.role
+    }, 'POST');
+    if (r.status === 'ok') {
+      toast(`Tier deleted (${r.deletedVouchers || 0} vouchers removed)`, 'success');
+      await loadTiersConfig();
+      await openTierManageModal();
+    } else {
+      toast(r.message || 'Failed', 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Expose
+window.openTierManageModal = openTierManageModal;
+window.openTierAddModal = openTierAddModal;
+window.openTierEditModal = openTierEditModal;
+window.submitNewTier = submitNewTier;
+window.submitEditTier = submitEditTier;
+window.moveTier = moveTier;
+window.confirmDeleteTier = confirmDeleteTier;
+window.executeTierDelete = executeTierDelete;
 
 // Expose for inline onclick
 window.openPromoAddModal = openPromoAddModal;
